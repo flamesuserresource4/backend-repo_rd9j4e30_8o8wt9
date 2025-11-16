@@ -1,6 +1,11 @@
 import os
-from fastapi import FastAPI
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from database import create_document, get_documents
+from schemas import Book
 
 app = FastAPI()
 
@@ -63,6 +68,38 @@ def test_database():
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     
     return response
+
+# ----------------------
+# Books API
+# ----------------------
+
+class BookCreate(Book):
+    pass
+
+class BookOut(Book):
+    id: Optional[str] = None
+
+@app.post("/books", response_model=dict)
+def create_book(book: BookCreate):
+    try:
+        inserted_id = create_document("book", book)
+        return {"id": inserted_id, "status": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/books", response_model=List[BookOut])
+def list_books(category: Optional[str] = Query(default=None, description="Filter by category"), limit: Optional[int] = Query(default=50, ge=1, le=200)):
+    try:
+        filter_dict = {"category": category} if category else {}
+        docs = get_documents("book", filter_dict=filter_dict, limit=limit)
+        # Normalize docs for Pydantic output
+        items: List[BookOut] = []
+        for d in docs:
+            d["id"] = str(d.pop("_id", ""))
+            items.append(BookOut(**d))
+        return items
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
